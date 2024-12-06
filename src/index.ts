@@ -49,11 +49,29 @@ const handleMatchingToken = async (address: any) => {
 
   if (swapDetected) {
     console.log(`🤖 Initial swap detected! Executing buy...`);
-    const explorerUrl = await buyToken(address.address, address.first_token_id);
-    await bot.sendMessage(
-      CHAT_ID,
-      `🤖 Buy executed for matching token: ${address.first_token_id}\n${explorerUrl}`
-    );
+    try {
+      const explorerUrl = await buyToken(
+        address.address,
+        address.first_token_id
+      );
+      // Send success message with more details
+      await bot.sendMessage(
+        CHAT_ID,
+        `✅ Buy Transaction Successful!\n\n` +
+          `Token: ${address.first_token_id}\n` +
+          `Pair Address: ${address.address}\n` +
+          `Transaction: ${explorerUrl}\n\n` +
+          `🚀 Your buy order has been executed!`
+      );
+    } catch (error) {
+      // Send error message if buy fails
+      await bot.sendMessage(
+        CHAT_ID,
+        `❌ Buy Transaction Failed!\n\n` +
+          `Token: ${address.first_token_id}\n` +
+          `Error: ${(error as any)?.message}`
+      );
+    }
   } else {
     console.log(`⏰ Timeout waiting for initial swap`);
     await bot.sendMessage(
