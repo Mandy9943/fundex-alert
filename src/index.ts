@@ -2,80 +2,94 @@ import dotenv from "dotenv";
 // Load environment variables first
 dotenv.config();
 
+import { CONFIG } from "./config";
+import { KeywordManager } from "./keyword-manager";
 import abi from "./master.abi.json";
 import { scQuery } from "./query";
 import { loadAddresses, saveAddresses } from "./storage";
-import { sendTelegramAlert } from "./telegram";
+import { buyToken } from "./swap";
+import { bot, CHAT_ID, sendTelegramAlert } from "./telegram";
+import { waitForInitialSwap } from "./utils/transactionChecker";
 
-const getScAddresses = async () => {
-  console.log("\n🔍 Checking for new addresses...");
+let isChecking = false;
 
-  const result = await scQuery(
-    "erd1qqqqqqqqqqqqqpgqg0sshhkwaxz8fxu47z4svrmp48mzydjlptzsdhxjpd",
-    abi,
-    "getAllBondingMetadata"
-  );
-  const data = result.firstValue?.valueOf().map((item: any) => {
-    return {
-      ...item,
-      address: item.address.bech32(),
-    };
-  });
-
-  const latest3 = data.reverse().slice(0, 3);
-  console.log("\n📊 Latest 3 addresses:");
-  latest3.forEach((addr: any, index: number) => {
-    console.log(`${index + 1}. ${addr.address}`);
-    console.log(`   Tokens: ${addr.first_token_id} - ${addr.second_token_id}`);
-  });
-
-  const storedAddresses = loadAddresses();
-  console.log("\n💾 Stored addresses count:", storedAddresses.length);
-
-  // Check for new addresses
-  let newAddressesFound = false;
-  for (const address of latest3) {
-    const isNew = !storedAddresses.some(
-      (stored) => stored.address === address.address
-    );
-
-    if (isNew) {
-      newAddressesFound = true;
-      console.log("\n🆕 New address detected!");
-      console.log(`   Address: ${address.address}`);
-      console.log(
-        `   Tokens: ${address.first_token_id} - ${address.second_token_id}`
-      );
-      await sendTelegramAlert(address);
-    }
+// Helper functions
+const fetchScData = async () => {
+  const result = await scQuery(CONFIG.SC_ADDRESS, abi, "getAllBondingMetadata");
+  if (!result?.firstValue) {
+    throw new Error("Invalid response format");
   }
-
-  if (!newAddressesFound) {
-    console.log("\n✅ No new addresses found");
-  }
-
-  // Save new addresses
-  saveAddresses(latest3);
-  console.log("\n💾 Addresses updated in storage");
-
-  return latest3;
+  return result.firstValue.valueOf().map((item: any) => ({
+    ...item,
+    address: item.address.bech32(),
+  }));
 };
 
-// Run periodically
-const CHECK_INTERVAL = 30 * 1000; // 5 minutes
-console.log(
-  `\n⏰ Starting address monitor (checking every ${
-    CHECK_INTERVAL / 1000
-  } seconds)`
-);
+const processNewAddress = async (address: any) => {
+  console.log("\n🆕 New address detected!");
+  console.log(`   Address: ${address.address}`);
+  console.log(
+    `   Tokens: ${address.first_token_id} - ${address.second_token_id}`
+  );
 
-setInterval(() => {
-  getScAddresses().catch((error) => {
-    console.error("\n❌ Error checking addresses:", error);
-  });
-}, CHECK_INTERVAL);
+  await sendTelegramAlert(address);
 
-// Initial check
-getScAddresses().catch((error) => {
-  console.error("\n❌ Error in initial address check:", error);
-});
+  const keywordManager = KeywordManager.getInstance();
+  if (keywordManager.matchesKeyword(address.first_token_id)) {
+    await handleMatchingToken(address);
+  }
+};
+
+const handleMatchingToken = async (address: any) => {
+  console.log(`🎯 Token matches keyword! Waiting for initial swap...`);
+  const swapDetected = await waitForInitialSwap(
+    address.address,
+    CONFIG.DEFAULT_TOKEN
+  );
+
+  if (swapDetected) {
+    console.log(`🤖 Initial swap detected! Executing buy...`);
+    const explorerUrl = await buyToken(address.address, address.first_token_id);
+    await bot.sendMessage(
+      CHAT_ID,
+      `🤖 Buy executed for matching token: ${address.first_token_id}\n${explorerUrl}`
+    );
+  } else {
+    console.log(`⏰ Timeout waiting for initial swap`);
+    await bot.sendMessage(
+      CHAT_ID,
+      `⏰ Timeout waiting for initial swap for ${address.first_token_id}`
+    );
+  }
+};
+
+// Main function refactored
+const getScAddresses = async () => {
+  if (isChecking) return;
+  isChecking = true;
+
+  try {
+    const data = await fetchScData();
+    const latest3 = data.reverse().slice(0, CONFIG.MAX_ADDRESSES_TO_CHECK);
+    const storedAddresses = loadAddresses();
+
+    // Check for new addresses
+    for (const address of latest3) {
+      const isNew = !storedAddresses.some(
+        (stored) => stored.address === address.address
+      );
+      if (isNew) {
+        await processNewAddress(address);
+      }
+    }
+
+    saveAddresses(latest3);
+  } catch (error) {
+    console.error("\n❌ Unexpected error:", error);
+  } finally {
+    isChecking = false;
+  }
+};
+
+// Update interval reference
+setInterval(getScAddresses, CONFIG.CHECK_INTERVAL);
