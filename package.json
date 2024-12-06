@@ -10,7 +10,9 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "test-tel": "ts-node src/test-bot.ts",
     "test-swap": "CHAIN=mainnet ts-node src/swap.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "start:pm2": "npm run build && CHAIN=mainnet pm2 start dist/index.js --name automatic-trade-bot",
+    "restart:pm2": "npm run build && pm2 restart automatic-trade-bot"
   },
   "keywords": [],
   "author": "",
