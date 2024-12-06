@@ -72,6 +72,7 @@ const getScAddresses = async () => {
     const data = await fetchScData();
     const latest3 = data.reverse().slice(0, CONFIG.MAX_ADDRESSES_TO_CHECK);
     const storedAddresses = loadAddresses();
+    console.log("storedAddresses", storedAddresses);
 
     // Check for new addresses
     for (const address of latest3) {
