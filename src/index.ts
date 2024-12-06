@@ -72,7 +72,7 @@ const getScAddresses = async () => {
     const data = await fetchScData();
     const latest3 = data.reverse().slice(0, CONFIG.MAX_ADDRESSES_TO_CHECK);
     const storedAddresses = loadAddresses();
-    console.log("storedAddresses", storedAddresses);
+    saveAddresses(latest3);
 
     // Check for new addresses
     for (const address of latest3) {
@@ -83,8 +83,6 @@ const getScAddresses = async () => {
         await processNewAddress(address);
       }
     }
-
-    saveAddresses(latest3);
   } catch (error) {
     console.error("\n❌ Unexpected error:", error);
   } finally {
